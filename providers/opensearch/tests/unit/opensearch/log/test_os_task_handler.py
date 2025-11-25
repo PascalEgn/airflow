@@ -145,6 +145,7 @@ class TestOpensearchTaskHandler:
             "ssl_assert_hostname": False,
             "ssl_show_warn": False,
             "ca_certs": "",
+            "url_prefix": "",
         }
         assert config == expected_dict
         # ensure creating with configs does not fail
@@ -562,3 +563,4 @@ def test_retrieve_config_keys():
         # http_compress comes from config value
         assert "http_compress" in args_from_config
         assert "self" not in args_from_config
+        assert "url_prefix" in args_from_config

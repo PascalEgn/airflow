@@ -157,6 +157,13 @@ def get_provider_info():
             "opensearch_configs": {
                 "description": None,
                 "options": {
+                    "url_prefix": {
+                        "description": "The URL prefix of Opensearch host\n",
+                        "version_added": "1.7.6",
+                        "type": "string",
+                        "example": None,
+                        "default": "",
+                    },
                     "http_compress": {
                         "description": None,
                         "version_added": "1.5.0",

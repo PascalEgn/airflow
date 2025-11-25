@@ -176,6 +176,12 @@ config:
   opensearch_configs:
     description: ~
     options:
+      url_prefix:
+        description: "The URL prefix of Opensearch host\n"
+        version_added: 1.7.6
+        type: string
+        example: ~
+        default: ""
       http_compress:
         description: ~
         version_added: 1.5.0
