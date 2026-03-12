@@ -27,6 +27,7 @@ import sys
 import time
 from collections import defaultdict
 from collections.abc import Callable
+from datetime import datetime
 from operator import attrgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -34,11 +35,10 @@ from urllib.parse import quote, urlparse
 
 import attrs
 
-# Using `from elasticsearch import *` would break elasticsearch mocking used in unit test.
-import elasticsearch
+# Using `from opensearchpy import *` would break OpenSearch mocking used in unit test.
 import pendulum
-from elasticsearch import helpers
-from elasticsearch.exceptions import NotFoundError
+from opensearchpy import OpenSearch, Urllib3HttpConnection, helpers
+from opensearchpy.exceptions import NotFoundError
 
 import airflow.logging_config as alc
 from airflow.configuration import conf
@@ -56,7 +56,6 @@ else:
     from airflow.utils.module_loading import import_string  # type: ignore[no-redef]
 
 if TYPE_CHECKING:
-    from datetime import datetime
 
     from airflow.models.taskinstance import TaskInstance, TaskInstanceKey
     from airflow.sdk.types import RuntimeTaskInstanceProtocol as RuntimeTI
@@ -81,7 +80,7 @@ USE_PER_RUN_LOG_ID = hasattr(DagRun, "get_log_template")
 
 TASK_LOG_FIELDS = ["timestamp", "event", "level", "chan", "logger"]
 
-VALID_ES_CONFIG_KEYS = set(inspect.signature(elasticsearch.Elasticsearch.__init__).parameters.keys())
+VALID_ES_CONFIG_KEYS = set(inspect.signature(Urllib3HttpConnection.__init__).parameters.keys())
 # Remove `self` from the valid set of kwargs
 VALID_ES_CONFIG_KEYS.remove("self")
 
@@ -191,8 +190,7 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
             base_log_folder=base_log_folder, max_bytes=max_bytes, backup_count=backup_count, delay=delay
         )
         self.closed = False
-
-        self.client = elasticsearch.Elasticsearch(self.host, **es_kwargs)
+        self.client = OpenSearch(self.host, **es_kwargs)
         # in airflow.cfg, host of elasticsearch has to be http://dockerhostXxxx:9200
 
         self.frontend = frontend
@@ -574,7 +572,7 @@ class ElasticsearchRemoteLogIO(LoggingMixin):  # noqa: D101
 
     def __attrs_post_init__(self):
         es_kwargs = get_es_kwargs_from_config()
-        self.client = elasticsearch.Elasticsearch(self.host, **es_kwargs)
+        self.client = OpenSearch(self.host, **es_kwargs)
         self.index_patterns_callable = conf.get("elasticsearch", "index_patterns_callable", fallback="")
         self.PAGE = 0
         self.MAX_LINE_PER_PAGE = conf.getint("elasticsearch", "max_lines_per_page", fallback=1000)
@@ -622,6 +620,9 @@ class ElasticsearchRemoteLogIO(LoggingMixin):  # noqa: D101
 
         return parsed_logs
 
+    def _resolve_date_pattern(self, pattern: str) -> str:
+        return datetime.now().strftime(pattern)
+
     def _write_to_es(self, log_lines: list[dict[str, Any]]) -> bool:
         """
         Write the log to ElasticSearch; return `True` or fails silently and return `False`.
@@ -629,7 +630,8 @@ class ElasticsearchRemoteLogIO(LoggingMixin):  # noqa: D101
         :param log_lines: the log_lines to write to the ElasticSearch.
         """
         # Prepare the bulk request for Elasticsearch
-        bulk_actions = [{"_index": self.target_index, "_source": log} for log in log_lines]
+        target_index = self._resolve_date_pattern(self.target_index)
+        bulk_actions = [{"_index": target_index, "_source": log} for log in log_lines]
         try:
             _ = helpers.bulk(self.client, bulk_actions)
             return True
@@ -692,7 +694,7 @@ class ElasticsearchRemoteLogIO(LoggingMixin):  # noqa: D101
 
         index_patterns = self._get_index_patterns(ti)
         try:
-            max_log_line = self.client.count(index=index_patterns, query=query)["count"]
+            max_log_line = self.client.count(index=index_patterns, body={"query": query})["count"]
         except NotFoundError as e:
             self.log.exception("The target index pattern %s does not exist", index_patterns)
             raise e
@@ -701,10 +703,12 @@ class ElasticsearchRemoteLogIO(LoggingMixin):  # noqa: D101
             try:
                 res = self.client.search(
                     index=index_patterns,
-                    query=query,
-                    sort=[self.offset_field],
-                    size=self.MAX_LINE_PER_PAGE,
-                    from_=self.MAX_LINE_PER_PAGE * self.PAGE,
+                    body={
+                        "query": query,
+                        "sort": [self.offset_field],
+                        "size": self.MAX_LINE_PER_PAGE,
+                        "from": self.MAX_LINE_PER_PAGE * self.PAGE,
+                    },
                 )
                 return ElasticSearchResponse(self, res)
             except Exception as err:

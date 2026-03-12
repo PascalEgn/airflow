@@ -21,7 +21,7 @@ import json
 import uuid
 from unittest.mock import patch
 
-import elasticsearch
+import opensearchpy
 import pytest
 
 from airflow.providers.elasticsearch.log.es_task_handler import ElasticsearchRemoteLogIO
@@ -64,7 +64,7 @@ class TestElasticsearchRemoteLogIOIntegration:
         self.elasticsearch_io.target_index = self.target_index
         # Point index_patterns at the unique index so reads don't scan unrelated indices
         self.elasticsearch_io.index_patterns = self.target_index
-        self.elasticsearch_io.client = elasticsearch.Elasticsearch(ES_HOST)
+        self.elasticsearch_io.client = opensearchpy.OpenSearch(ES_HOST)
 
     @pytest.fixture
     def ti(self):

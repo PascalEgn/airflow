@@ -23,14 +23,12 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 from urllib import parse
 
-from elasticsearch import Elasticsearch
+from opensearchpy import OpenSearch
 
 from airflow.providers.common.compat.sdk import BaseHook
 from airflow.providers.common.sql.hooks.sql import DbApiHook
 
 if TYPE_CHECKING:
-    from elastic_transport import ObjectApiResponse
-
     from airflow.models.connection import Connection as AirflowConnection
 
 
@@ -46,18 +44,18 @@ def connect(
 
 
 class ElasticsearchSQLCursor:
-    """A PEP 249-like Cursor class for Elasticsearch SQL API."""
+    """A PEP 249-like Cursor class for OpenSearch SQL API."""
 
-    def __init__(self, es: Elasticsearch, **kwargs):
+    def __init__(self, es: OpenSearch, **kwargs):
         self.es = es
         self.body = {
             "fetch_size": kwargs.get("fetch_size", 1000),
             "field_multi_value_leniency": kwargs.get("field_multi_value_leniency", False),
         }
-        self._response: ObjectApiResponse | None = None
+        self._response: dict[str, Any] | None = None
 
     @property
-    def response(self) -> ObjectApiResponse:
+    def response(self) -> dict[str, Any]:
         return self._response or {}  # type: ignore
 
     @response.setter
@@ -82,11 +80,13 @@ class ElasticsearchSQLCursor:
 
     def execute(
         self, statement: str, params: Iterable | Mapping[str, Any] | None = None
-    ) -> ObjectApiResponse:
+    ) -> dict[str, Any]:
         self.body["query"] = statement
         if params:
             self.body["params"] = params
-        self.response = self.es.sql.query(body=self.body)
+        self.response = self.es.transport.perform_request(
+            method="POST", url="/_plugins/_sql", body=self.body
+        )
         if self.cursor:
             self.body["cursor"] = self.cursor
         else:
@@ -113,7 +113,7 @@ class ElasticsearchSQLCursor:
 
 
 class ESConnection:
-    """wrapper class for elasticsearch.Elasticsearch."""
+    """Wrapper class for opensearchpy.OpenSearch."""
 
     def __init__(
         self,
@@ -135,9 +135,9 @@ class ESConnection:
         netloc = f"{host}:{port}"
         self.url = parse.urlunparse((scheme, netloc, "/", None, None, None))
         if user and password:
-            self.es = Elasticsearch(self.url, http_auth=(user, password), **kwargs)
+            self.es = OpenSearch(self.url, http_auth=(user, password), **kwargs)
         else:
-            self.es = Elasticsearch(self.url, **kwargs)
+            self.es = OpenSearch(self.url, **kwargs)
 
     def cursor(self) -> ElasticsearchSQLCursor:
         return ElasticsearchSQLCursor(self.es, **self.kwargs)
@@ -150,7 +150,7 @@ class ESConnection:
 
     def execute_sql(
         self, query: str, params: Iterable | Mapping[str, Any] | None = None
-    ) -> ObjectApiResponse:
+    ) -> dict[str, Any]:
         return self.cursor().execute(query, params)
 
 
@@ -228,12 +228,12 @@ class ElasticsearchSQLHook(DbApiHook):
         # TODO: Custom ElasticsearchSQLCursor is incompatible with polars.read_database.
         # To support: either adapt cursor to polars._executor interface or create custom polars reader.
         # https://github.com/apache/airflow/pull/50454
-        raise NotImplementedError("Polars is not supported for Elasticsearch")
+        raise NotImplementedError("Polars is not supported for OpenSearch")
 
 
 class ElasticsearchPythonHook(BaseHook):
     """
-    Interacts with Elasticsearch. This hook uses the official Elasticsearch Python Client.
+    Interacts with OpenSearch. This hook uses the official OpenSearch Python client.
 
     :param hosts: list: A list of a single or many Elasticsearch instances. Example: ["http://localhost:9200"]
     :param es_conn_args: dict: Additional arguments you might need to enter to connect to Elasticsearch.
@@ -245,25 +245,29 @@ class ElasticsearchPythonHook(BaseHook):
         self.hosts = hosts
         self.es_conn_args = es_conn_args or {}
 
-    def _get_elastic_connection(self):
-        """Return the Elasticsearch client."""
-        client = Elasticsearch(self.hosts, **self.es_conn_args)
+    def _get_opensearch_connection(self):
+        """Return the OpenSearch client."""
+        client = OpenSearch(self.hosts, **self.es_conn_args)
 
         return client
 
+    def _get_elastic_connection(self):
+        """Backward-compatible alias for older internal callers."""
+        return self._get_opensearch_connection()
+
     @cached_property
     def get_conn(self):
-        """Return the Elasticsearch client (cached)."""
-        return self._get_elastic_connection()
+        """Return the OpenSearch client (cached)."""
+        return self._get_opensearch_connection()
 
     def search(self, query: dict[Any, Any], index: str = "_all") -> dict:
         """
-        Return results matching a query using Elasticsearch DSL.
+        Return results matching a query using OpenSearch DSL.
 
         :param index: str: The index you want to query
         :param query: dict: The query you want to run
 
-        :returns: dict: The response 'hits' object from Elasticsearch
+        :returns: dict: The response 'hits' object from OpenSearch
         """
         es_client = self.get_conn
         result = es_client.search(index=index, body=query)

@@ -52,7 +52,7 @@ ELASTIC_INSTANCES: dict[str, FakeElasticsearch] = {}
 def _normalize_hosts(hosts):
     """
     Helper function to transform hosts argument to
-    :class:`~elasticsearch.Elasticsearch` to a list of dicts.
+    :class:`~opensearchpy.OpenSearch` to a list of dicts.
     """
     # if hosts are empty, just defer to defaults down the line
     if hosts is None:
@@ -104,7 +104,7 @@ def elasticmock(function):
     @wraps(function)
     def decorated(*args, **kwargs):
         ELASTIC_INSTANCES.clear()
-        with patch("elasticsearch.Elasticsearch", _get_elasticmock):
+        with patch("opensearchpy.OpenSearch", _get_elasticmock):
             result = function(*args, **kwargs)
         return result
 

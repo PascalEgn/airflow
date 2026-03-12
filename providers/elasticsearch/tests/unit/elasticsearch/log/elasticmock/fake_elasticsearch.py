@@ -19,8 +19,8 @@ from __future__ import annotations
 import fnmatch
 import json
 
-from elasticsearch import Elasticsearch
-from elasticsearch.exceptions import NotFoundError
+from opensearchpy import OpenSearch
+from opensearchpy.exceptions import NotFoundError
 
 from unit.elasticsearch.log.elasticmock.utilities import (
     MissingIndexException,
@@ -52,7 +52,7 @@ from unit.elasticsearch.log.elasticmock.utilities import (
 # SOFTWARE.
 
 
-class FakeElasticsearch(Elasticsearch):
+class FakeElasticsearch(OpenSearch):
     __documents_dict = None
 
     def __init__(self):

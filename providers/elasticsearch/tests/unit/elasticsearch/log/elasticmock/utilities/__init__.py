@@ -46,7 +46,7 @@ import string
 from datetime import date, datetime
 from functools import wraps
 
-from elasticsearch.exceptions import NotFoundError
+from opensearchpy.exceptions import NotFoundError
 
 DEFAULT_ELASTICSEARCH_ID_SIZE = 20
 CHARSET_FOR_ELASTICSEARCH_ID = string.ascii_letters + string.digits

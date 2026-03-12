@@ -21,9 +21,8 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
-from elasticsearch import Elasticsearch
-from elasticsearch._sync.client import SqlClient
 from kgb import SpyAgency
+from opensearchpy import OpenSearch
 
 from airflow.models import Connection
 from airflow.providers.common.sql.hooks.handlers import fetch_all_handler
@@ -77,9 +76,10 @@ class TestElasticsearchSQLHookConn:
 
 class TestElasticsearchSQLCursor:
     def setup_method(self):
-        sql = MagicMock(spec=SqlClient)
-        sql.query.side_effect = RESPONSES
-        self.es = MagicMock(sql=sql, spec=Elasticsearch)
+        transport = MagicMock()
+        transport.perform_request.side_effect = RESPONSES
+        self.es = MagicMock(spec=OpenSearch)
+        self.es.transport = transport
 
     def test_execute(self):
         cursor = ElasticsearchSQLCursor(es=self.es, options={})
@@ -128,9 +128,10 @@ class TestElasticsearchSQLCursor:
 
 class TestElasticsearchSQLHook:
     def setup_method(self):
-        sql = MagicMock(spec=SqlClient)
-        sql.query.side_effect = RESPONSES
-        es = MagicMock(sql=sql, spec=Elasticsearch)
+        transport = MagicMock()
+        transport.perform_request.side_effect = RESPONSES
+        es = MagicMock(spec=OpenSearch)
+        es.transport = transport
         self.cur = ElasticsearchSQLCursor(es=es, options={})
         self.spy_agency = SpyAgency()
         self.spy_agency.spy_on(self.cur.close, call_original=True)
@@ -227,20 +228,22 @@ class TestElasticsearchSQLHook:
         assert call_kw["sql"] == sql
         assert call_kw["sql_parameters"] == parameters
 
-    @mock.patch("airflow.providers.elasticsearch.hooks.elasticsearch.Elasticsearch")
+    @mock.patch("airflow.providers.elasticsearch.hooks.elasticsearch.OpenSearch")
     def test_execute_sql_query(self, mock_es):
-        mock_es_sql_client = MagicMock()
-        mock_es_sql_client.query.return_value = RESPONSE_WITHOUT_CURSOR
-        mock_es.return_value.sql = mock_es_sql_client
+        mock_transport = MagicMock()
+        mock_transport.perform_request.return_value = RESPONSE_WITHOUT_CURSOR
+        mock_es.return_value.transport = mock_transport
 
         es_connection = ESConnection(host="localhost", port=9200)
         response = es_connection.execute_sql("SELECT * FROM hollywood.actors")
-        mock_es_sql_client.query.assert_called_once_with(
+        mock_transport.perform_request.assert_called_once_with(
+            method="POST",
+            url="/_plugins/_sql",
             body={
                 "fetch_size": 1000,
                 "field_multi_value_leniency": False,
                 "query": "SELECT * FROM hollywood.actors",
-            }
+            },
         )
 
         assert response == RESPONSE_WITHOUT_CURSOR
@@ -268,10 +271,10 @@ class TestElasticsearchPythonHook:
 
     def test_client(self):
         es_connection = self.elasticsearch_hook.get_conn
-        assert isinstance(es_connection, Elasticsearch)
+        assert isinstance(es_connection, OpenSearch)
 
     @mock.patch(
-        "airflow.providers.elasticsearch.hooks.elasticsearch.ElasticsearchPythonHook._get_elastic_connection"
+        "airflow.providers.elasticsearch.hooks.elasticsearch.ElasticsearchPythonHook._get_opensearch_connection"
     )
     def test_search(self, elastic_mock):
         es_data = {"hits": "test_hit"}

@@ -30,7 +30,7 @@ from unittest import mock
 from unittest.mock import Mock, patch
 from urllib.parse import quote
 
-import elasticsearch
+import opensearchpy
 import pendulum
 import pytest
 
@@ -129,7 +129,7 @@ class TestElasticsearchTaskHandler:
             offset_field=self.offset_field,
         )
 
-        self.es = elasticsearch.Elasticsearch("http://localhost:9200")
+        self.es = opensearchpy.OpenSearch("http://localhost:9200")
         self.index_name = "test_index"
         self.doc_type = "log"
         self.test_message = "some random stuff"
@@ -187,7 +187,7 @@ class TestElasticsearchTaskHandler:
             assert ElasticsearchTaskHandler.format_url(host) == expected
 
     def test_client(self):
-        assert isinstance(self.es_task_handler.client, elasticsearch.Elasticsearch)
+        assert isinstance(self.es_task_handler.client, opensearchpy.OpenSearch)
         assert self.es_task_handler.index_patterns == "_all"
 
     def test_client_with_config(self):
@@ -307,7 +307,7 @@ class TestElasticsearchTaskHandler:
     def test_read_with_missing_index(self, ti):
         ts = pendulum.now()
         with mock.patch.object(self.es_task_handler.io, "index_patterns", new="nonexistent,test_*"):
-            with pytest.raises(elasticsearch.exceptions.NotFoundError, match=r"IndexMissingException.*"):
+            with pytest.raises(opensearchpy.exceptions.NotFoundError, match=r"IndexMissingException.*"):
                 self.es_task_handler.read(
                     ti,
                     1,
@@ -1053,7 +1053,7 @@ class TestElasticsearchRemoteLogIO:
             assert "log_id" in json_log_line
             assert "offset" in json_log_line
 
-    @patch("elasticsearch.Elasticsearch.count", return_value={"count": 0})
+    @patch("opensearchpy.OpenSearch.count", return_value={"count": 0})
     def test_read_with_missing_log(self, mocked_count, ti):
         log_source_info, log_messages = self.elasticsearch_io.read("", ti)
         log_id = _render_log_id(self.elasticsearch_io.log_id_template, ti, ti.try_number)
